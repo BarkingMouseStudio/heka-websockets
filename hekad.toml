@@ -1,0 +1,6 @@
+[WebSocketsInput]
+address = ":4000" # Address to bind websockets input
+
+[WebSocketsOutput]
+address = ":5000" # Address to bind websockets output
+message_matcher = "TRUE"
