@@ -28,7 +28,7 @@ func (wso *WebSocketsOutput) ConfigStruct() interface{} {
 	return &WebSocketsOutputConfig{":5000"}
 }
 
-func (wso *WebSocketsOutput) Init(config interface{}) (err error) {
+func (wso *WebSocketsOutput) Init(config interface{}) error {
 	wso.conf = config.(*WebSocketsOutputConfig)
 	wso.connections = make(map[*connection]struct{})
 	wso.register = make(chan *connection)
@@ -73,7 +73,7 @@ func (wso *WebSocketsOutput) Init(config interface{}) (err error) {
 		var err error
 		for b := range c.send {
 			if err = websocket.Message.Send(ws, b); err != nil {
-				fmt.Errorf(err.Error())
+				fmt.Println(err.Error())
 				break
 			}
 		}
@@ -81,14 +81,14 @@ func (wso *WebSocketsOutput) Init(config interface{}) (err error) {
 
 	go func() {
 		if err := http.ListenAndServe(wso.conf.Address, nil); err != nil {
-			fmt.Errorf(err.Error())
+			fmt.Println(err.Error())
 		}
 	}()
 
 	return nil
 }
 
-func (wso *WebSocketsOutput) Run(or pipeline.OutputRunner, h pipeline.PluginHelper) (err error) {
+func (wso *WebSocketsOutput) Run(or pipeline.OutputRunner, h pipeline.PluginHelper) error {
 	for pc := range or.InChan() {
 		wso.broadcast <- pc.Pack.MsgBytes
 		pc.Pack.Recycle()

@@ -21,7 +21,7 @@ func (wsi *WebSocketsInput) ConfigStruct() interface{} {
 	return &WebSocketsInputConfig{":4000"}
 }
 
-func (wsi *WebSocketsInput) Init(config interface{}) (err error) {
+func (wsi *WebSocketsInput) Init(config interface{}) error {
 	wsi.conf = config.(*WebSocketsInputConfig)
 	wsi.data = make(chan []byte, 256)
 
@@ -30,7 +30,7 @@ func (wsi *WebSocketsInput) Init(config interface{}) (err error) {
 		for {
 			var b []byte
 			if err = websocket.Message.Receive(ws, &b); err != nil {
-				fmt.Errorf(err.Error())
+				fmt.Println(err.Error())
 				break
 			}
 			wsi.data <- b
@@ -39,16 +39,18 @@ func (wsi *WebSocketsInput) Init(config interface{}) (err error) {
 
 	go func() {
 		if err := http.ListenAndServe(wsi.conf.Address, nil); err != nil {
-			fmt.Errorf(err.Error())
+			fmt.Println(err.Error())
 		}
 	}()
-	return
+
+	return nil
 }
 
 func (wsi *WebSocketsInput) Run(ir pipeline.InputRunner, h pipeline.PluginHelper) error {
 	// Get the InputRunner's chan to receive empty PipelinePacks
 	packs := ir.InChan()
 
+	// TODO: Make decoder optional for streaming binary data
 	// Fetch JSON decoder
 	decoder, ok := h.DecoderSet().ByName("JsonDecoder")
 	if !ok {
