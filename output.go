@@ -3,13 +3,14 @@ package heka_websockets
 import (
 	"code.google.com/p/go.net/websocket"
 	"fmt"
+	"github.com/mozilla-services/heka/message"
 	"github.com/mozilla-services/heka/pipeline"
 	"net/http"
 )
 
 type connection struct {
 	ws   *websocket.Conn
-	send chan []byte
+	send chan *message.Message
 }
 
 type WebSocketsOutputConfig struct {
@@ -21,7 +22,7 @@ type WebSocketsOutput struct {
 	connections map[*connection]struct{}
 	register    chan *connection
 	unregister  chan *connection
-	broadcast   chan []byte
+	broadcast   chan *message.Message
 }
 
 func (wso *WebSocketsOutput) ConfigStruct() interface{} {
@@ -33,12 +34,12 @@ func (wso *WebSocketsOutput) Init(config interface{}) error {
 	wso.connections = make(map[*connection]struct{})
 	wso.register = make(chan *connection)
 	wso.unregister = make(chan *connection)
-	wso.broadcast = make(chan []byte, 256)
+	wso.broadcast = make(chan *message.Message, 256)
 
 	// Connections handler
 	go func() {
 		var conn *connection
-		var b []byte
+		var m *message.Message
 		for {
 			select {
 			case conn = <-wso.register:
@@ -46,10 +47,10 @@ func (wso *WebSocketsOutput) Init(config interface{}) error {
 			case conn = <-wso.unregister:
 				delete(wso.connections, conn)
 				close(conn.send)
-			case b = <-wso.broadcast:
+			case m = <-wso.broadcast:
 				for conn = range wso.connections {
 					select {
-					case conn.send <- b:
+					case conn.send <- m:
 					default:
 						delete(wso.connections, conn)
 						close(conn.send)
@@ -62,7 +63,7 @@ func (wso *WebSocketsOutput) Init(config interface{}) error {
 
 	// Websocket server and connection handler
 	http.Handle("/hekaout", websocket.Handler(func(ws *websocket.Conn) {
-		c := &connection{ws, make(chan []byte, 256)}
+		c := &connection{ws, make(chan *message.Message, 256)}
 
 		wso.register <- c
 
@@ -71,9 +72,9 @@ func (wso *WebSocketsOutput) Init(config interface{}) error {
 		}()
 
 		var err error
-		for b := range c.send {
-			if err = websocket.Message.Send(ws, b); err != nil {
-				fmt.Println(err.Error())
+		for m := range c.send {
+			if err = websocket.JSON.Send(ws, m); err != nil {
+				fmt.Println("Websocket:", err.Error())
 				break
 			}
 		}
@@ -81,7 +82,7 @@ func (wso *WebSocketsOutput) Init(config interface{}) error {
 
 	go func() {
 		if err := http.ListenAndServe(wso.conf.Address, nil); err != nil {
-			fmt.Println(err.Error())
+			fmt.Println("Http:", err.Error())
 		}
 	}()
 
@@ -90,7 +91,7 @@ func (wso *WebSocketsOutput) Init(config interface{}) error {
 
 func (wso *WebSocketsOutput) Run(or pipeline.OutputRunner, h pipeline.PluginHelper) error {
 	for pc := range or.InChan() {
-		wso.broadcast <- pc.Pack.MsgBytes
+		wso.broadcast <- pc.Pack.Message
 		pc.Pack.Recycle()
 	}
 	return nil

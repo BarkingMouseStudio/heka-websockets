@@ -2,7 +2,6 @@ package heka_websockets
 
 import (
 	"code.google.com/p/go.net/websocket"
-	"errors"
 	"fmt"
 	"github.com/mozilla-services/heka/pipeline"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 
 type WebSocketsInputConfig struct {
 	Address string `toml:"address"`
+	Decoder string `toml:"decoder"`
 }
 
 type WebSocketsInput struct {
@@ -18,7 +18,7 @@ type WebSocketsInput struct {
 }
 
 func (wsi *WebSocketsInput) ConfigStruct() interface{} {
-	return &WebSocketsInputConfig{":4000"}
+	return &WebSocketsInputConfig{":4000", "JsonDecoder"}
 }
 
 func (wsi *WebSocketsInput) Init(config interface{}) error {
@@ -30,7 +30,7 @@ func (wsi *WebSocketsInput) Init(config interface{}) error {
 		for {
 			var b []byte
 			if err = websocket.Message.Receive(ws, &b); err != nil {
-				fmt.Println(err.Error())
+				fmt.Println("Websocket:", err.Error())
 				break
 			}
 			wsi.data <- b
@@ -39,7 +39,7 @@ func (wsi *WebSocketsInput) Init(config interface{}) error {
 
 	go func() {
 		if err := http.ListenAndServe(wsi.conf.Address, nil); err != nil {
-			fmt.Println(err.Error())
+			fmt.Println("Http:", err.Error())
 		}
 	}()
 
@@ -50,16 +50,18 @@ func (wsi *WebSocketsInput) Run(ir pipeline.InputRunner, h pipeline.PluginHelper
 	// Get the InputRunner's chan to receive empty PipelinePacks
 	packs := ir.InChan()
 
-	// TODO: Make decoder optional for streaming binary data
-	// Fetch JSON decoder
-	decoder, ok := h.DecoderSet().ByName("JsonDecoder")
-	if !ok {
-		err := errors.New("Could not find JSON decoder")
-		return err
-	}
+	var decoding chan<- *pipeline.PipelinePack
+	if wsi.conf.Decoder != "" {
+		// Fetch specified decoder
+		decoder, ok := h.DecoderSet().ByName(wsi.conf.Decoder)
+		if !ok {
+			err := fmt.Errorf("Could not find decoder", wsi.conf.Decoder)
+			return err
+		}
 
-	// Get the decoder's receiving chan
-	decoding := decoder.InChan()
+		// Get the decoder's receiving chan
+		decoding = decoder.InChan()
+	}
 
 	var pack *pipeline.PipelinePack
 	var count int
@@ -76,8 +78,13 @@ func (wsi *WebSocketsInput) Run(ir pipeline.InputRunner, h pipeline.PluginHelper
 		// Copy ws bytes into pack's bytes
 		copy(pack.MsgBytes, b)
 
-		// Send pack onto JSON decoder
-		decoding <- pack
+		if decoding != nil {
+			// Send pack onto decoder
+			decoding <- pack
+		} else {
+			// Send pack into Heka pipeline
+			ir.Inject(pack)
+		}
 	}
 
 	return nil
